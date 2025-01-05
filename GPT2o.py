@@ -185,25 +185,22 @@ class GPT(nn.Module):
         return model
     
 
-    def configure_optimizers(self, weight_decay, lr, device):
-        param_dict = {k: p for k, p in self.named_parameters()}
-        param_dict = {k: p for k, p in param_dict.items() if p.requires_grad}
-
-        decay_parameters = {'params': [p for n, p in param_dict.items() if p.dim() >= 2]}
-        non_decay_parameters = {'params': [p for n, p in param_dict.items() if p.dim() < 1]}
-
+    def configure_optimizers(self, weight_decay, learning_rate, device):
+        # start with all of the candidate parameters (that require grad)
+        param_dict = {pn: p for pn, p in self.named_parameters()}
+        param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
+        # create optim groups. Any parameters that is 2D will be weight decayed, otherwise no.
+        # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
+        decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
+        nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
         optim_groups = [
-            {'params': decay_parameters, 'weight_decay': weight_decay},
-            {'params':non_decay_parameters, 'weight_decay': 0.0}
+            {'params': decay_params, 'weight_decay': weight_decay},
+            {'params': nodecay_params, 'weight_decay': 0.0}
         ]
-        num_decay_parameters = sum(p.numel() for p in decay_parameters)
-        num_non_decanon_decay_parameters = sum(p.numel() for p in non_decay_parameters)
+        num_decay_params = sum(p.numel() for p in decay_params)
+        num_nodecay_params = sum(p.numel() for p in nodecay_params)
         
-        fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
-        use_fused = fused_available 
-
-
-        optimizer = torch.optim.AdamW(optim_groups, lr=lr, betas=(0.9, 0.95), eps=1e-8, fused=use_fused)
+        optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8)
         return optimizer
         
 num_return_sequences = 5
@@ -275,7 +272,7 @@ def get_lr(step):
 
 
 #optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4,betas = (0.9, 0.95), eps=1e-8)
-optimizer  = model.configure_optimizers(weight_decay=0.1, lr=6e-4,device = 'cuda')
+optimizer  = model.configure_optimizers(weight_decay=0.1, learning_rate=6e-4,device = 'cuda')
 
 
 for step in range(max_steps):
